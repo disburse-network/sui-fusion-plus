@@ -1,8 +1,5 @@
 module sui_fusion_plus::constants {
 
-    use sui::coin::{Self, Coin};
-    use sui::object::{Self, Object, UID};
-
     // - - - - CONSTANTS - - - -
 
     const DEFAULT_SAFETY_DEPOSIT_COIN_TYPE: vector<u8> = b"0x2::sui::SUI";

@@ -1,6 +1,5 @@
 module sui_fusion_plus::hashlock {
     use std::hash;
-    use std::vector;
 
     // - - - - ERROR CODES - - - -
 
@@ -21,7 +20,7 @@ module sui_fusion_plus::hashlock {
     /// A hash-based lock that can be unlocked with a secret.
     ///
     /// @param hash The 32-byte hash of the secret that can unlock this lock.
-    struct HashLock has copy, drop, store {
+    public struct HashLock has copy, drop, store {
         hash: vector<u8>
     }
 

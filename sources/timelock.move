@@ -3,8 +3,6 @@ module sui_fusion_plus::timelock {
     use sui_fusion_plus::constants;
 
     /// Error codes
-    const EINVALID_DURATION: u64 = 1;
-    const EOVERFLOW: u64 = 2;
     const EINVALID_CHAIN_TYPE: u64 = 3;
 
     /// Chain type constants
@@ -30,7 +28,7 @@ module sui_fusion_plus::timelock {
     ///
     /// @param created_at When this timelock was created.
     /// @param chain_type Whether this is source (0) or destination (1) chain.
-    struct Timelock has copy, drop, store {
+    public struct Timelock has copy, drop, store {
         created_at: u64,
         chain_type: u8
     }

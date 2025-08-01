@@ -9,6 +9,3 @@ Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-fram
 [addresses]
 sui_fusion_plus = "0x0"
 
-[dev-addresses]
-sui_fusion_plus = "0x0"
-
