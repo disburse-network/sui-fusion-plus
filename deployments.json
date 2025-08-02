@@ -1,0 +1,10 @@
+{
+  "devnet": {
+    "address": "0x0",
+    "explorer": "https://suiexplorer.com/object/0x0?network=devnet"
+  },
+  "testnet": {
+    "address": "0x0", 
+    "explorer": "https://suiexplorer.com/object/0x0?network=testnet"
+  }
+} 
