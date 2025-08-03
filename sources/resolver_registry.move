@@ -21,12 +21,34 @@ module sui_fusion_plus::resolver_registry {
     // - - - - EVENTS - - - -
 
     /// Event emitted when a new resolver is registered
+    /// 
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - This event indicates a new resolver has been whitelisted
+    /// - Only registered resolvers can participate in cross-chain swaps
+    /// - Resolvers must be registered before they can accept fusion orders
+    /// 
+    /// RESOLVER SHOULD:
+    /// 1. Monitor this event to know when new resolvers are added
+    /// 2. Track registered resolver addresses for potential collaboration
+    /// 3. Ensure you are registered before attempting cross-chain swaps
+    /// 4. Use this for resolver network monitoring
     public struct ResolverRegisteredEvent has drop, store, copy {
         resolver: address,    // Address of the newly registered resolver
         registered_at: u64    // Timestamp when registration occurred
     }
 
     /// Event emitted when a resolver's status changes
+    /// 
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - This event indicates a resolver has been activated or deactivated
+    /// - is_active = true: Resolver can participate in cross-chain swaps
+    /// - is_active = false: Resolver is temporarily disabled
+    /// 
+    /// RESOLVER SHOULD:
+    /// 1. Monitor this event to track resolver status changes
+    /// 2. Check if you are still active before accepting new orders
+    /// 3. Handle deactivation gracefully (complete existing swaps)
+    /// 4. Use this for resolver network health monitoring
     public struct ResolverStatusEvent has drop, store, copy {
         resolver: address,    // Address of the resolver whose status changed
         is_active: bool,      // TRUE = active, FALSE = inactive
@@ -67,9 +89,18 @@ module sui_fusion_plus::resolver_registry {
 
     /// Registers a new resolver in the registry.
     /// Following Sui's pattern for entry functions with proper parameter ordering.
+    ///
+    /// @param resolver_address The address of the resolver to register.
+    /// @param registry The resolver registry to update.
+    /// @param clock The clock object to get current time.
+    /// @param ctx The transaction context.
+    ///
+    /// @reverts ENOT_AUTHORIZED if the signer is not the admin.
+    /// @reverts EALREADY_REGISTERED if the resolver is already registered.
     public entry fun register_resolver(
         resolver_address: address,
         registry: &mut ResolverRegistry,
+        clock: &Clock,
         ctx: &mut TxContext
     ) {
         let admin_address = tx_context::sender(ctx);
@@ -78,7 +109,7 @@ module sui_fusion_plus::resolver_registry {
         // Check if resolver is already registered
         assert!(!table::contains(&registry.resolvers, resolver_address), EALREADY_REGISTERED);
 
-        let current_time = 0; // Placeholder for timestamp
+        let current_time = clock::timestamp_ms(clock);
 
         let resolver_info = Resolver {
             registered_at: current_time,
@@ -95,29 +126,8 @@ module sui_fusion_plus::resolver_registry {
                 registered_at: current_time
             }
         );
-    }
 
-    /// Activates a resolver in the registry.
-    /// Using Sui's pattern for status management.
-    public entry fun activate_resolver(
-        resolver_address: address,
-        registry: &mut ResolverRegistry,
-        ctx: &mut TxContext
-    ) {
-        let admin_address = tx_context::sender(ctx);
-        assert!(admin_address == @sui_fusion_plus, ENOT_AUTHORIZED);
-
-        assert!(table::contains(&registry.resolvers, resolver_address), ENOT_REGISTERED);
-
-        let resolver_info = table::borrow_mut(&mut registry.resolvers, resolver_address);
-        assert!(!resolver_info.status, EINVALID_STATUS_CHANGE);
-
-        let current_time = 0; // Placeholder for timestamp
-
-        resolver_info.status = true;
-        resolver_info.last_status_change = current_time;
-
-        // Emit status change event
+        // Emit initial status event
         event::emit(
             ResolverStatusEvent {
                 resolver: resolver_address,
@@ -127,11 +137,21 @@ module sui_fusion_plus::resolver_registry {
         );
     }
 
-    /// Deactivates a resolver in the registry.
-    /// Using Sui's pattern for status management.
+    /// Deactivates a registered resolver.
+    /// Following Sui's pattern for status management.
+    ///
+    /// @param resolver_address The address of the resolver to deactivate.
+    /// @param registry The resolver registry to update.
+    /// @param clock The clock object to get current time.
+    /// @param ctx The transaction context.
+    ///
+    /// @reverts ENOT_AUTHORIZED if the signer is not the admin.
+    /// @reverts ENOT_REGISTERED if the resolver is not registered.
+    /// @reverts EINVALID_STATUS_CHANGE if the resolver is already inactive.
     public entry fun deactivate_resolver(
         resolver_address: address,
         registry: &mut ResolverRegistry,
+        clock: &Clock,
         ctx: &mut TxContext
     ) {
         let admin_address = tx_context::sender(ctx);
@@ -142,7 +162,7 @@ module sui_fusion_plus::resolver_registry {
         let resolver_info = table::borrow_mut(&mut registry.resolvers, resolver_address);
         assert!(resolver_info.status, EINVALID_STATUS_CHANGE);
 
-        let current_time = 0; // Placeholder for timestamp
+        let current_time = clock::timestamp_ms(clock);
 
         resolver_info.status = false;
         resolver_info.last_status_change = current_time;
@@ -157,8 +177,52 @@ module sui_fusion_plus::resolver_registry {
         );
     }
 
+    /// Reactivates a deactivated resolver.
+    /// Following Sui's pattern for status management.
+    ///
+    /// @param resolver_address The address of the resolver to reactivate.
+    /// @param registry The resolver registry to update.
+    /// @param clock The clock object to get current time.
+    /// @param ctx The transaction context.
+    ///
+    /// @reverts ENOT_AUTHORIZED if the signer is not the admin.
+    /// @reverts ENOT_REGISTERED if the resolver is not registered.
+    /// @reverts EINVALID_STATUS_CHANGE if the resolver is already active.
+    public entry fun reactivate_resolver(
+        resolver_address: address,
+        registry: &mut ResolverRegistry,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        let admin_address = tx_context::sender(ctx);
+        assert!(admin_address == @sui_fusion_plus, ENOT_AUTHORIZED);
+
+        assert!(table::contains(&registry.resolvers, resolver_address), ENOT_REGISTERED);
+
+        let resolver_info = table::borrow_mut(&mut registry.resolvers, resolver_address);
+        assert!(!resolver_info.status, EINVALID_STATUS_CHANGE);
+
+        let current_time = clock::timestamp_ms(clock);
+
+        resolver_info.status = true;
+        resolver_info.last_status_change = current_time;
+
+        // Emit status change event
+        event::emit(
+            ResolverStatusEvent {
+                resolver: resolver_address,
+                is_active: true,
+                changed_at: current_time
+            }
+        );
+    }
+
     /// Checks if a resolver is registered and active.
     /// Following Sui's pattern for data access.
+    ///
+    /// @param resolver_address The address of the resolver to check.
+    /// @param registry The resolver registry to check against.
+    /// @return bool True if the resolver is registered and active, false otherwise.
     public fun is_resolver_active(resolver_address: address, registry: &ResolverRegistry): bool {
         if (!table::contains(&registry.resolvers, resolver_address)) {
             return false
@@ -169,6 +233,10 @@ module sui_fusion_plus::resolver_registry {
     }
 
     /// Gets the registration timestamp of a resolver.
+    ///
+    /// @param resolver_address The address of the resolver.
+    /// @param registry The resolver registry to check against.
+    /// @return u64 The registration timestamp.
     public fun get_resolver_registration_time(resolver_address: address, registry: &ResolverRegistry): u64 {
         assert!(table::contains(&registry.resolvers, resolver_address), ENOT_REGISTERED);
 
@@ -177,6 +245,10 @@ module sui_fusion_plus::resolver_registry {
     }
 
     /// Gets the last status change timestamp of a resolver.
+    ///
+    /// @param resolver_address The address of the resolver.
+    /// @param registry The resolver registry to check against.
+    /// @return u64 The last status change timestamp.
     public fun get_resolver_last_status_change(resolver_address: address, registry: &ResolverRegistry): u64 {
         assert!(table::contains(&registry.resolvers, resolver_address), ENOT_REGISTERED);
 
@@ -185,11 +257,24 @@ module sui_fusion_plus::resolver_registry {
     }
 
     /// Gets the current status of a resolver.
+    ///
+    /// @param resolver_address The address of the resolver.
+    /// @param registry The resolver registry to check against.
+    /// @return bool The current status of the resolver.
     public fun get_resolver_status(resolver_address: address, registry: &ResolverRegistry): bool {
         assert!(table::contains(&registry.resolvers, resolver_address), ENOT_REGISTERED);
 
         let resolver_info = table::borrow(&registry.resolvers, resolver_address);
         resolver_info.status
+    }
+
+    /// Checks if a resolver exists in the registry.
+    ///
+    /// @param resolver_address The address of the resolver to check.
+    /// @param registry The resolver registry to check against.
+    /// @return bool True if the resolver is registered, false otherwise.
+    public fun is_resolver_registered(resolver_address: address, registry: &ResolverRegistry): bool {
+        table::contains(&registry.resolvers, resolver_address)
     }
 
     #[test_only]

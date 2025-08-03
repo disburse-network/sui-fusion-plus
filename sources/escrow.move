@@ -5,11 +5,13 @@ module sui_fusion_plus::escrow {
     use sui::clock::{Self, Clock};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
+    use sui::table::{Self, Table};
 
     use sui_fusion_plus::hashlock::{Self, HashLock};
     use sui_fusion_plus::timelock::{Self, Timelock};
     use sui_fusion_plus::constants;
     use sui_fusion_plus::fusion_order::{Self, FusionOrder};
+    use sui_fusion_plus::resolver_registry::{Self, ResolverRegistry};
 
     // - - - - ERROR CODES - - - -
 
@@ -23,10 +25,24 @@ module sui_fusion_plus::escrow {
     const EINVALID_AMOUNT: u64 = 4;
     /// Object does not exist
     const EOBJECT_DOES_NOT_EXIST: u64 = 5;
+    /// Invalid resolver
+    const EINVALID_RESOLVER: u64 = 6;
 
     // - - - - EVENTS - - - -
 
     /// Event emitted when an escrow is created
+    /// 
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - is_source_chain = true: This escrow is on the source chain (where user deposited assets)
+    /// - is_source_chain = false: This escrow is on the destination chain (where recipient will claim)
+    /// - chain_id: Identifies which blockchain network this escrow is on
+    /// - hash: The secret hash that must match across both chains for atomic swap
+    /// - from/to: Shows asset flow direction (from user to resolver, or resolver to recipient)
+    /// 
+    /// RESOLVER SHOULD:
+    /// 1. Monitor these events on both chains
+    /// 2. Ensure matching escrows exist on both chains with same hash
+    /// 3. Track escrow lifecycle for cross-chain coordination
     public struct EscrowCreatedEvent has drop, store, copy {
         escrow: address,        // Escrow object address for tracking
         from: address,          // Address that created/funded the escrow
@@ -39,6 +55,16 @@ module sui_fusion_plus::escrow {
     }
 
     /// Event emitted when an escrow is withdrawn by the recipient
+    /// 
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - When this event fires on destination chain, resolver should release source chain escrow
+    /// - When this event fires on source chain, resolver should release destination chain escrow
+    /// - This ensures atomic swap completion across chains
+    /// 
+    /// RESOLVER SHOULD:
+    /// 1. Listen for this event on both chains
+    /// 2. Trigger corresponding withdrawal on the other chain
+    /// 3. Verify the secret was correct before releasing other chain
     public struct EscrowWithdrawnEvent has drop, store, copy {
         escrow: address,        // Escrow object that was withdrawn
         recipient: address,     // Address that successfully withdrew
@@ -48,6 +74,16 @@ module sui_fusion_plus::escrow {
     }
 
     /// Event emitted when an escrow is recovered/cancelled
+    /// 
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - This indicates escrow cancellation or recovery
+    /// - Resolver should handle cleanup on the other chain
+    /// - May need to cancel corresponding escrow on other chain
+    /// 
+    /// RESOLVER SHOULD:
+    /// 1. Monitor for recovery events on both chains
+    /// 2. Cancel corresponding escrow on other chain if needed
+    /// 3. Handle partial swap scenarios
     public struct EscrowRecoveredEvent has drop, store, copy {
         escrow: address,        // Escrow object that was recovered
         recovered_by: address,  // Address that recovered the assets
@@ -60,6 +96,15 @@ module sui_fusion_plus::escrow {
 
     /// An Escrow Object that contains the assets that are being escrowed.
     /// Following Sui's object-centric model for rich on-chain assets.
+    /// 
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - from: On source chain = user address, on destination chain = resolver address
+    /// - to: On source chain = resolver address, on destination chain = recipient address
+    /// - resolver: Always the resolver address (same on both chains)
+    /// - chain_id: Identifies which blockchain this escrow is on
+    /// - hash: Must be identical across both chains for atomic swap
+    /// - timelock: Controls phase-based access (finality -> exclusive -> cancellation phases)
+    /// - hashlock: Protects assets with secret verification
     public struct Escrow has key, store {
         id: UID,
         coin_type: vector<u8>,
@@ -92,10 +137,11 @@ module sui_fusion_plus::escrow {
     public entry fun new_from_order_entry(
         fusion_order: FusionOrder,
         safety_deposit_coin: Coin<u64>,
+        registry: &ResolverRegistry,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
-        let escrow = new_from_order(fusion_order, safety_deposit_coin, clock, ctx);
+        let escrow = new_from_order(fusion_order, safety_deposit_coin, registry, clock, ctx);
         // Transfer the escrow to the sender
         transfer::public_transfer(escrow, tx_context::sender(ctx));
     }
@@ -120,6 +166,7 @@ module sui_fusion_plus::escrow {
         hash: vector<u8>,
         asset_coin: Coin<u64>,
         safety_deposit_coin: Coin<u64>,
+        registry: &ResolverRegistry,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
@@ -131,6 +178,7 @@ module sui_fusion_plus::escrow {
             hash,
             asset_coin,
             safety_deposit_coin,
+            registry,
             clock,
             ctx
         );
@@ -164,6 +212,7 @@ module sui_fusion_plus::escrow {
     ///
     /// @param fusion_order The fusion order to convert to escrow.
     /// @param safety_deposit_coin The safety deposit coin from the resolver.
+    /// @param registry The resolver registry to validate resolver status.
     /// @param clock The clock object to get current time.
     /// @param ctx The transaction context.
     ///
@@ -171,6 +220,7 @@ module sui_fusion_plus::escrow {
     public fun new_from_order(
         fusion_order: FusionOrder,
         safety_deposit_coin: Coin<u64>,
+        registry: &ResolverRegistry,
         clock: &Clock,
         ctx: &mut TxContext
     ): Escrow {
@@ -179,12 +229,16 @@ module sui_fusion_plus::escrow {
         let chain_id = fusion_order::get_chain_id(&fusion_order);
         let hash = fusion_order::get_hash(&fusion_order);
         
+        // Validate resolver is active
+        assert!(resolver_registry::is_resolver_active(resolver_address, registry), EINVALID_RESOLVER);
+        
         // Extract assets from fusion order
-        let (asset_coin, safety_deposit_asset) = fusion_order::resolver_accept_order(
-            fusion_order,
-            safety_deposit_coin,
-            ctx
-        );
+                    let (asset_coin, safety_deposit_asset) = fusion_order::resolver_accept_order(
+                fusion_order,
+                safety_deposit_coin,
+                clock,
+                ctx
+            );
         
         new_internal(
             asset_coin,
@@ -220,6 +274,7 @@ module sui_fusion_plus::escrow {
     /// @param hash The hash of the secret for the cross-chain swap.
     /// @param asset_coin The asset coin being escrowed.
     /// @param safety_deposit_coin The safety deposit coin from the resolver.
+    /// @param registry The resolver registry to validate resolver status.
     /// @param clock The clock object to get current time.
     /// @param ctx The transaction context.
     ///
@@ -234,6 +289,7 @@ module sui_fusion_plus::escrow {
         hash: vector<u8>,
         asset_coin: Coin<u64>,
         safety_deposit_coin: Coin<u64>,
+        registry: &ResolverRegistry,
         clock: &Clock,
         ctx: &mut TxContext
     ): Escrow {
@@ -242,6 +298,7 @@ module sui_fusion_plus::escrow {
         // Validate inputs
         assert!(amount > 0, EINVALID_AMOUNT);
         assert!(hashlock::is_valid_hash(&hash), EINVALID_SECRET);
+        assert!(resolver_registry::is_resolver_active(resolver_address, registry), EINVALID_RESOLVER);
 
         new_internal(
             asset_coin,
@@ -303,7 +360,7 @@ module sui_fusion_plus::escrow {
         let hashlock = hashlock::create_hashlock(hash);
 
         let amount = coin::value(&asset_coin);
-        let coin_type = b"0x2::sui::SUI"; // Placeholder - in real implementation this would be extracted from coin
+        let coin_type = b"0x2::sui::SUI"; // For native SUI token
 
         // Create the Escrow using Sui's object model
         let escrow = Escrow {

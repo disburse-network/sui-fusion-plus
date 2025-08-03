@@ -7,6 +7,7 @@ module sui_fusion_plus::fusion_order {
     use sui::tx_context::{Self, TxContext};
 
     use sui_fusion_plus::constants;
+    use sui_fusion_plus::resolver_registry::{Self, ResolverRegistry};
 
     // - - - - ERROR CODES - - - -
 
@@ -22,6 +23,20 @@ module sui_fusion_plus::fusion_order {
     // - - - - EVENTS - - - -
 
     /// Event emitted when a fusion order is created
+    /// 
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - This event indicates a user wants to swap assets to a different chain
+    /// - chain_id: Shows which blockchain the user wants to swap TO
+    /// - source_amount: How much the user is depositing
+    /// - initial_destination_amount: Starting price of Dutch auction
+    /// - min_destination_amount: Minimum price of Dutch auction
+    /// - destination_recipient: EVM address that should receive destination assets
+    /// 
+    /// RESOLVER SHOULD:
+    /// 1. Monitor these events to find swap opportunities
+    /// 2. Check if you have matching destination assets on the destination chain
+    /// 3. Evaluate if the swap is profitable for you
+    /// 4. Call resolver_accept_order() if you want to accept the order
     public struct FusionOrderCreatedEvent has drop, store, copy {
         fusion_order: address, // Order object address for tracking
         owner: address,         // User who created the order
@@ -38,6 +53,15 @@ module sui_fusion_plus::fusion_order {
     }
 
     /// Event emitted when a fusion order is cancelled by the owner
+    /// 
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - User cancelled their order before resolver picked it up
+    /// - No action needed from resolver
+    /// - Assets returned to user automatically
+    /// 
+    /// RESOLVER SHOULD:
+    /// 1. Remove this order from your tracking
+    /// 2. No cross-chain coordination needed
     public struct FusionOrderCancelledEvent has drop, store, copy {
         fusion_order: address, // Order object that was cancelled
         owner: address,         // User who cancelled the order
@@ -45,6 +69,17 @@ module sui_fusion_plus::fusion_order {
     }
 
     /// Event emitted when a fusion order is accepted by a resolver
+    /// 
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - Resolver has accepted the order and created source chain escrow
+    /// - Resolver must now create matching destination chain escrow
+    /// - This triggers the cross-chain atomic swap process
+    /// 
+    /// RESOLVER SHOULD:
+    /// 1. Create matching escrow on destination chain with same parameters
+    /// 2. Monitor both escrows for withdrawal events
+    /// 3. Handle the complete cross-chain swap lifecycle
+    /// 4. Ensure atomic swap completion or proper cancellation
     public struct FusionOrderAcceptedEvent has drop, store, copy {
         fusion_order: address, // Order object that was accepted
         resolver: address,      // Resolver who accepted the order
@@ -64,6 +99,11 @@ module sui_fusion_plus::fusion_order {
 
     /// A fusion order that represents a user's intent to swap assets across chains.
     /// Following Sui's object-centric model for rich on-chain assets.
+    /// 
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - Users only deposit source asset (no safety deposit)
+    /// - Resolvers provide safety deposit when accepting orders
+    /// - This matches the actual 1inch Fusion+ protocol design
     public struct FusionOrder has key, store {
         id: UID,
         owner: address,
@@ -121,6 +161,17 @@ module sui_fusion_plus::fusion_order {
 
     /// Creates a new FusionOrder with the specified parameters.
     /// Following Sui's Move language patterns for safety and expressivity.
+    ///
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - User creates order with only source asset (no safety deposit)
+    /// - Resolver provides safety deposit when accepting order
+    /// - This matches the actual 1inch Fusion+ protocol design
+    /// 
+    /// RESOLVER SHOULD:
+    /// 1. Monitor FusionOrderCreatedEvent to find orders
+    /// 2. Provide safety deposit when accepting orders
+    /// 3. Create matching destination chain escrow
+    /// 4. Handle complete cross-chain swap lifecycle
     public fun new(
         source_coin: Coin<u64>,
         destination_asset: vector<u8>,
@@ -215,6 +266,11 @@ module sui_fusion_plus::fusion_order {
 
     /// Cancels a fusion order and returns assets to the owner.
     /// Using Sui's transfer model for safe asset movement.
+    ///
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - User cancels order before resolver picks it up
+    /// - Only main asset is returned (no safety deposit since user never provided one)
+    /// - No cross-chain coordination needed
     public entry fun cancel(
         fusion_order: FusionOrder,
         ctx: &mut TxContext
@@ -276,6 +332,7 @@ module sui_fusion_plus::fusion_order {
     public fun resolver_accept_order(
         fusion_order: FusionOrder,
         safety_deposit_coin: Coin<u64>,
+        clock: &Clock,
         ctx: &mut TxContext
     ): (Coin<u64>, Coin<u64>) {
         let signer_address = tx_context::sender(ctx);
@@ -306,8 +363,13 @@ module sui_fusion_plus::fusion_order {
         // - Track that order has been accepted
         // - Use metadata, amount, chain_id to create destination escrow
         // - Ensure matching parameters across both chains
-        // Note: In a real implementation, we would use the current time from a clock
-        let current_price = initial_destination_amount; // Simplified for now
+        let current_price = calculate_current_dutch_auction_price(
+            initial_destination_amount,
+            min_destination_amount,
+            decay_per_second,
+            auction_start_time,
+            clock
+        );
         event::emit(
             FusionOrderAcceptedEvent {
                 fusion_order: object::uid_to_address(&id),

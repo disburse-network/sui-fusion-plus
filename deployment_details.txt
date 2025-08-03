@@ -1,0 +1,43 @@
+│ Created Objects:                                                                                  │
+│  ┌──                                                                                              │
+│  │ ID: 0x1b9ee490d1a6284d73a14ffc7c3783e75ef2ee649a230a884dedca2ec5db03f1                         │
+│  │ Owner: Account Address ( 0x2cddbffb15f99c7da8bb28e1c9f4a6483c42b4e13fee0535e242ed7e7bf435c0 )  │
+│  │ Version: 349180306                                                                             │
+│  │ Digest: DRG8x4YfnLYY4iej1Vu9bUbsnFXTdGg2H2Tiah6tv4DT                                           │
+│  └──                                                                                              │
+│  ┌──                                                                                              │
+│  │ ID: 0x6291f7e06fd7804d300a6e4971147248b04f33f42d8d8bb4ec7e256c5fcbbe94                         │
+│  │ Owner: Immutable                                                                               │
+│  │ Version: 1                                                                                     │
+│  │ Digest: 3uRUs5gKc6tapd4PJ4V2tcJs2YEqmomuqidc9fmpzZz8                                           │
+│  └──                                                                                              │
+│ Mutated Objects:                                                                                  │
+│  ┌──                                                                                              │
+│  │ ID: 0x7c2fd103474de4e98d3c7fca06159c3fd04746b9e749fdd358c55b63f495ec03                         │
+│  │ Owner: Account Address ( 0x2cddbffb15f99c7da8bb28e1c9f4a6483c42b4e13fee0535e242ed7e7bf435c0 )  │
+│  │ Version: 349180306                                                                             │
+│  │ Digest: 72quMjbwRnLNFFdGepmYrERDV2QycnyEVhRF49zXQpt1                                           │
+│  └──                                                                                              │
+│ Gas Object:                                                                                       │
+--
+│ Created Objects:                                                                                 │
+│  ┌──                                                                                             │
+│  │ ObjectID: 0x1b9ee490d1a6284d73a14ffc7c3783e75ef2ee649a230a884dedca2ec5db03f1                  │
+│  │ Sender: 0x2cddbffb15f99c7da8bb28e1c9f4a6483c42b4e13fee0535e242ed7e7bf435c0                    │
+│  │ Owner: Account Address ( 0x2cddbffb15f99c7da8bb28e1c9f4a6483c42b4e13fee0535e242ed7e7bf435c0 ) │
+│  │ ObjectType: 0x2::package::UpgradeCap                                                          │
+│  │ Version: 349180306                                                                            │
+│  │ Digest: DRG8x4YfnLYY4iej1Vu9bUbsnFXTdGg2H2Tiah6tv4DT                                          │
+│  └──                                                                                             │
+│ Mutated Objects:                                                                                 │
+│  ┌──                                                                                             │
+│  │ ObjectID: 0x7c2fd103474de4e98d3c7fca06159c3fd04746b9e749fdd358c55b63f495ec03                  │
+│  │ Sender: 0x2cddbffb15f99c7da8bb28e1c9f4a6483c42b4e13fee0535e242ed7e7bf435c0                    │
+│  │ Owner: Account Address ( 0x2cddbffb15f99c7da8bb28e1c9f4a6483c42b4e13fee0535e242ed7e7bf435c0 ) │
+│  │ ObjectType: 0x2::coin::Coin<0x2::sui::SUI>                                                    │
+│  │ Version: 349180306                                                                            │
+│  │ Digest: 72quMjbwRnLNFFdGepmYrERDV2QycnyEVhRF49zXQpt1                                          │
+│  └──                                                                                             │
+│ Published Objects:                                                                               │
+│  ┌──                                                                                             │
+│  │ PackageID: 0x6291f7e06fd7804d300a6e4971147248b04f33f42d8d8bb4ec7e256c5fcbbe94                 │

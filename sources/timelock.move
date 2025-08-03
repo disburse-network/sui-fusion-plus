@@ -109,23 +109,52 @@ module sui_fusion_plus::timelock {
         }
     }
 
-    /// Checks if withdrawal is allowed in the current phase.
+    /// Gets the remaining time in the current phase.
     ///
     /// @param timelock The Timelock to check.
     /// @param clock The clock object to get current time.
-    /// @return bool True if withdrawal is allowed, false otherwise.
-    public fun is_withdrawal_allowed(timelock: &Timelock, clock: &Clock): bool {
-        let phase = get_phase(timelock, clock);
-        phase == SRC_PHASE_WITHDRAWAL || phase == SRC_PHASE_PUBLIC_WITHDRAWAL ||
-        phase == DST_PHASE_WITHDRAWAL || phase == DST_PHASE_PUBLIC_WITHDRAWAL
+    /// @return u64 The remaining time in milliseconds, or 0 if in final phase.
+    public fun get_remaining_time(timelock: &Timelock, clock: &Clock): u64 {
+        let now = clock::timestamp_ms(clock);
+        let elapsed = now - timelock.created_at;
+
+        if (timelock.chain_type == CHAIN_TYPE_SOURCE) {
+            get_source_remaining_time(elapsed)
+        } else {
+            get_destination_remaining_time(elapsed)
+        }
     }
 
-    /// Checks if cancellation is allowed in the current phase.
-    /// Following Sui's pattern for status management.
-    public fun is_cancellation_allowed(timelock: &Timelock, clock: &Clock): bool {
-        let phase = get_phase(timelock, clock);
-        phase == SRC_PHASE_CANCELLATION || phase == SRC_PHASE_PUBLIC_CANCELLATION ||
-        phase == DST_PHASE_CANCELLATION
+    /// Gets the remaining time for source chain phases.
+    fun get_source_remaining_time(elapsed: u64): u64 {
+        if (elapsed < constants::get_src_finality_lock()) {
+            constants::get_src_finality_lock() - elapsed
+        } else if (elapsed < constants::get_src_withdrawal()) {
+            constants::get_src_withdrawal() - elapsed
+        } else if (elapsed < constants::get_src_public_withdrawal()) {
+            constants::get_src_public_withdrawal() - elapsed
+        } else if (elapsed < constants::get_src_cancellation()) {
+            constants::get_src_cancellation() - elapsed
+        } else if (elapsed < constants::get_src_public_cancellation()) {
+            constants::get_src_public_cancellation() - elapsed
+        } else {
+            0
+        }
+    }
+
+    /// Gets the remaining time for destination chain phases.
+    fun get_destination_remaining_time(elapsed: u64): u64 {
+        if (elapsed < constants::get_dst_finality_lock()) {
+            constants::get_dst_finality_lock() - elapsed
+        } else if (elapsed < constants::get_dst_withdrawal()) {
+            constants::get_dst_withdrawal() - elapsed
+        } else if (elapsed < constants::get_dst_public_withdrawal()) {
+            constants::get_dst_public_withdrawal() - elapsed
+        } else if (elapsed < constants::get_dst_cancellation()) {
+            constants::get_dst_cancellation() - elapsed
+        } else {
+            0
+        }
     }
 
     /// Checks if the timelock is in the finality lock phase (no actions allowed).
@@ -138,7 +167,67 @@ module sui_fusion_plus::timelock {
         phase == SRC_PHASE_FINALITY_LOCK || phase == DST_PHASE_FINALITY_LOCK
     }
 
-    /// Checks if we're in the cancellation phase (private cancellation).
+    /// Checks if withdrawal is allowed (not in finality lock and in withdrawal phase).
+    ///
+    /// @param timelock The Timelock to check.
+    /// @param clock The clock object to get current time.
+    /// @return bool True if withdrawal is allowed, false otherwise.
+    public fun is_withdrawal_allowed(timelock: &Timelock, clock: &Clock): bool {
+        !is_in_finality_lock_phase(timelock, clock) && 
+        (is_in_withdrawal_phase(timelock, clock) || is_in_public_withdrawal_phase(timelock, clock))
+    }
+
+    /// Checks if cancellation is allowed (not in finality lock and in cancellation phase).
+    ///
+    /// @param timelock The Timelock to check.
+    /// @param clock The clock object to get current time.
+    /// @return bool True if cancellation is allowed, false otherwise.
+    public fun is_cancellation_allowed(timelock: &Timelock, clock: &Clock): bool {
+        !is_in_finality_lock_phase(timelock, clock) && 
+        (is_in_cancellation_phase(timelock, clock) || is_in_public_cancellation_phase(timelock, clock))
+    }
+
+    /// Gets the total duration of all phases for the chain type.
+    ///
+    /// @param timelock The Timelock to check.
+    /// @return u64 The total duration in milliseconds.
+    public fun get_total_duration(timelock: &Timelock): u64 {
+        if (timelock.chain_type == CHAIN_TYPE_SOURCE) {
+            constants::get_src_public_cancellation()
+        } else {
+            constants::get_dst_cancellation()
+        }
+    }
+
+    /// Gets the end time of the timelock (when it expires).
+    ///
+    /// @param timelock The Timelock to check.
+    /// @return u64 The expiration timestamp in milliseconds.
+    public fun get_expiration_time(timelock: &Timelock): u64 {
+        timelock.created_at + get_total_duration(timelock)
+    }
+
+    /// Checks if the timelock is in the withdrawal phase (with secret only).
+    ///
+    /// @param timelock The Timelock to check.
+    /// @param clock The clock object to get current time.
+    /// @return bool True if in withdrawal phase, false otherwise.
+    public fun is_in_withdrawal_phase(timelock: &Timelock, clock: &Clock): bool {
+        let phase = get_phase(timelock, clock);
+        phase == SRC_PHASE_WITHDRAWAL || phase == DST_PHASE_WITHDRAWAL
+    }
+
+    /// Checks if the timelock is in the public withdrawal phase.
+    ///
+    /// @param timelock The Timelock to check.
+    /// @param clock The clock object to get current time.
+    /// @return bool True if in public withdrawal phase, false otherwise.
+    public fun is_in_public_withdrawal_phase(timelock: &Timelock, clock: &Clock): bool {
+        let phase = get_phase(timelock, clock);
+        phase == SRC_PHASE_PUBLIC_WITHDRAWAL || phase == DST_PHASE_PUBLIC_WITHDRAWAL
+    }
+
+    /// Checks if the timelock is in the cancellation phase.
     ///
     /// @param timelock The Timelock to check.
     /// @param clock The clock object to get current time.
@@ -148,7 +237,7 @@ module sui_fusion_plus::timelock {
         phase == SRC_PHASE_CANCELLATION || phase == DST_PHASE_CANCELLATION
     }
 
-    /// Checks if we're in the public cancellation phase.
+    /// Checks if the timelock is in the public cancellation phase (source chain only).
     ///
     /// @param timelock The Timelock to check.
     /// @param clock The clock object to get current time.
@@ -180,5 +269,82 @@ module sui_fusion_plus::timelock {
     /// @return u8 The chain type (0 = source, 1 = destination).
     public fun get_chain_type(timelock: &Timelock): u8 {
         timelock.chain_type
+    }
+
+    /// Checks if this is a source chain timelock.
+    ///
+    /// @param timelock The Timelock to check.
+    /// @return bool True if source chain, false otherwise.
+    public fun is_source_chain(timelock: &Timelock): bool {
+        timelock.chain_type == CHAIN_TYPE_SOURCE
+    }
+
+    /// Checks if this is a destination chain timelock.
+    ///
+    /// @param timelock The Timelock to check.
+    /// @return bool True if destination chain, false otherwise.
+    public fun is_destination_chain(timelock: &Timelock): bool {
+        timelock.chain_type == CHAIN_TYPE_DESTINATION
+    }
+
+    // Test functions
+    #[test_only]
+    public fun get_chain_type_source(): u8 {
+        CHAIN_TYPE_SOURCE
+    }
+
+    #[test_only]
+    public fun get_chain_type_destination(): u8 {
+        CHAIN_TYPE_DESTINATION
+    }
+
+    #[test_only]
+    public fun get_src_phase_finality_lock(): u8 {
+        SRC_PHASE_FINALITY_LOCK
+    }
+
+    #[test_only]
+    public fun get_src_phase_withdrawal(): u8 {
+        SRC_PHASE_WITHDRAWAL
+    }
+
+    #[test_only]
+    public fun get_src_phase_public_withdrawal(): u8 {
+        SRC_PHASE_PUBLIC_WITHDRAWAL
+    }
+
+    #[test_only]
+    public fun get_src_phase_cancellation(): u8 {
+        SRC_PHASE_CANCELLATION
+    }
+
+    #[test_only]
+    public fun get_src_phase_public_cancellation(): u8 {
+        SRC_PHASE_PUBLIC_CANCELLATION
+    }
+
+    #[test_only]
+    public fun get_dst_phase_finality_lock(): u8 {
+        DST_PHASE_FINALITY_LOCK
+    }
+
+    #[test_only]
+    public fun get_dst_phase_withdrawal(): u8 {
+        DST_PHASE_WITHDRAWAL
+    }
+
+    #[test_only]
+    public fun get_dst_phase_public_withdrawal(): u8 {
+        DST_PHASE_PUBLIC_WITHDRAWAL
+    }
+
+    #[test_only]
+    public fun get_dst_phase_cancellation(): u8 {
+        DST_PHASE_CANCELLATION
+    }
+
+    #[test_only]
+    public fun new_for_test(chain_type: u8): Timelock {
+        new_internal(chain_type)
     }
 } 
