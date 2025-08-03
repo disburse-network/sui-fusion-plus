@@ -191,4 +191,25 @@ module sui_fusion_plus::resolver_registry {
         let resolver_info = table::borrow(&registry.resolvers, resolver_address);
         resolver_info.status
     }
+
+    #[test_only]
+    /// Creates a test resolver registry for testing purposes.
+    /// This function creates a registry with a test resolver already registered.
+    public fun get_test_registry(ctx: &mut TxContext): ResolverRegistry {
+        let mut registry = ResolverRegistry {
+            id: object::new(ctx),
+            resolvers: table::new<address, Resolver>(ctx)
+        };
+        
+        // Add a test resolver
+        let test_resolver = Resolver {
+            registered_at: 0,
+            last_status_change: 0,
+            status: true
+        };
+        
+        table::add(&mut registry.resolvers, @0x123, test_resolver);
+        
+        registry
+    }
 } 

@@ -121,14 +121,21 @@ module sui_fusion_plus::timelock {
     }
 
     /// Checks if cancellation is allowed in the current phase.
-    ///
-    /// @param timelock The Timelock to check.
-    /// @param clock The clock object to get current time.
-    /// @return bool True if cancellation is allowed, false otherwise.
+    /// Following Sui's pattern for status management.
     public fun is_cancellation_allowed(timelock: &Timelock, clock: &Clock): bool {
         let phase = get_phase(timelock, clock);
         phase == SRC_PHASE_CANCELLATION || phase == SRC_PHASE_PUBLIC_CANCELLATION ||
         phase == DST_PHASE_CANCELLATION
+    }
+
+    /// Checks if the timelock is in the finality lock phase (no actions allowed).
+    ///
+    /// @param timelock The Timelock to check.
+    /// @param clock The clock object to get current time.
+    /// @return bool True if in finality lock phase, false otherwise.
+    public fun is_in_finality_lock_phase(timelock: &Timelock, clock: &Clock): bool {
+        let phase = get_phase(timelock, clock);
+        phase == SRC_PHASE_FINALITY_LOCK || phase == DST_PHASE_FINALITY_LOCK
     }
 
     /// Checks if we're in the cancellation phase (private cancellation).

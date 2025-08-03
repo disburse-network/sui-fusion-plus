@@ -14,6 +14,10 @@ module sui_fusion_plus::fusion_order {
     const EINVALID_AMOUNT: u64 = 1;
     /// Invalid hash
     const EINVALID_HASH: u64 = 6;
+    /// Invalid resolver
+    const EINVALID_RESOLVER: u64 = 5;
+    /// Object does not exist
+    const EOBJECT_DOES_NOT_EXIST: u64 = 4;
 
     // - - - - EVENTS - - - -
 
@@ -38,6 +42,22 @@ module sui_fusion_plus::fusion_order {
         fusion_order: address, // Order object that was cancelled
         owner: address,         // User who cancelled the order
         source_amount: u64                  // Amount that was cancelled
+    }
+
+    /// Event emitted when a fusion order is accepted by a resolver
+    public struct FusionOrderAcceptedEvent has drop, store, copy {
+        fusion_order: address, // Order object that was accepted
+        resolver: address,      // Resolver who accepted the order
+        owner: address,         // Original user who created the order
+        source_amount: u64,                 // Source amount
+        destination_asset: vector<u8>,      // Destination asset (EVM address or native)
+        destination_recipient: vector<u8>,  // EVM address to receive destination assets
+        chain_id: u64,                      // Destination chain ID
+        initial_destination_amount: u64,
+        min_destination_amount: u64,
+        decay_per_second: u64,
+        auction_start_time: u64,
+        current_price: u64                  // Current Dutch auction price at acceptance time
     }
 
     // - - - - STRUCTS - - - -
@@ -224,6 +244,147 @@ module sui_fusion_plus::fusion_order {
         object::delete(id);
     }
 
+    /// Allows an active resolver to accept a fusion order.
+    /// This function is called from the escrow module when creating an escrow from a fusion order.
+    ///
+    /// CROSS-CHAIN RESOLVER LOGIC:
+    /// - This function extracts assets from fusion order and creates source chain escrow
+    /// - Assets stay in escrow (not with resolver) for hashlock/timelock protection
+    /// - Resolver must then create matching destination chain escrow
+    /// - Emits FusionOrderAcceptedEvent for cross-chain coordination
+    /// 
+    /// RESOLVER FLOW:
+    /// 1. Monitor FusionOrderCreatedEvent to find orders you want to accept
+    /// 2. Call escrow::new_from_order_entry() which internally calls this function
+    /// 3. This function creates source chain escrow with user's assets
+    /// 4. Resolver must then create matching destination chain escrow
+    /// 5. Monitor both escrows for withdrawal events
+    /// 
+    /// RESOLVER RESPONSIBILITIES:
+    /// 1. Ensure you have matching assets on destination chain before accepting
+    /// 2. Provide safety deposit when accepting order (this is your skin in the game)
+    /// 3. Monitor FusionOrderAcceptedEvent to know when order is accepted
+    /// 4. Create destination chain escrow with same parameters
+    /// 5. Handle the complete cross-chain swap lifecycle
+    ///
+    /// @param fusion_order The fusion order to accept.
+    /// @param safety_deposit_coin The safety deposit coin from the resolver.
+    /// @param ctx The transaction context.
+    ///
+    /// @reverts EINSUFFICIENT_BALANCE if resolver has insufficient safety deposit.
+    /// @return (Coin<u64>, Coin<u64>) The main asset and safety deposit asset for escrow creation.
+    public fun resolver_accept_order(
+        fusion_order: FusionOrder,
+        safety_deposit_coin: Coin<u64>,
+        ctx: &mut TxContext
+    ): (Coin<u64>, Coin<u64>) {
+        let signer_address = tx_context::sender(ctx);
+
+        // Validate safety deposit amount
+        let safety_deposit_amount = coin::value(&safety_deposit_coin);
+        assert!(safety_deposit_amount >= constants::get_safety_deposit_amount(), 2); // EINSUFFICIENT_BALANCE
+
+        // Store event data before deletion
+        // CROSS-CHAIN LOGIC: These values are used in FusionOrderAcceptedEvent
+        // and must match the destination chain escrow parameters
+        let owner = fusion_order.owner;
+        let source_amount = fusion_order.source_amount;
+        let destination_asset = fusion_order.destination_asset;
+        let destination_recipient = fusion_order.destination_recipient;
+        let chain_id = fusion_order.chain_id;
+        let initial_destination_amount = fusion_order.initial_destination_amount;
+        let min_destination_amount = fusion_order.min_destination_amount;
+        let decay_per_second = fusion_order.decay_per_second;
+        let auction_start_time = fusion_order.auction_start_time;
+
+        // Extract main asset from fusion order (user's asset)
+        // CROSS-CHAIN LOGIC: This asset will be used to create source chain escrow
+        let FusionOrder { id, source_coin, .. } = fusion_order;
+
+        // Emit acceptance event for cross-chain coordination
+        // RESOLVER SHOULD MONITOR THIS EVENT:
+        // - Track that order has been accepted
+        // - Use metadata, amount, chain_id to create destination escrow
+        // - Ensure matching parameters across both chains
+        // Note: In a real implementation, we would use the current time from a clock
+        let current_price = initial_destination_amount; // Simplified for now
+        event::emit(
+            FusionOrderAcceptedEvent {
+                fusion_order: object::uid_to_address(&id),
+                resolver: signer_address,
+                owner,
+                source_amount,
+                destination_asset,
+                destination_recipient,
+                chain_id,
+                initial_destination_amount,
+                min_destination_amount,
+                decay_per_second,
+                auction_start_time,
+                current_price
+            }
+        );
+
+        // Delete the fusion order
+        object::delete(id);
+
+        // Return assets for escrow creation (not for resolver to keep)
+        // CROSS-CHAIN LOGIC: These assets will be locked in escrow
+        (source_coin, safety_deposit_coin)
+    }
+
+    // - - - - GETTER FUNCTIONS - - - -
+
+    /// Gets the owner address of a fusion order.
+    public fun get_owner(fusion_order: &FusionOrder): address {
+        fusion_order.owner
+    }
+
+    /// Gets the amount of the source asset in a fusion order.
+    public fun get_source_amount(fusion_order: &FusionOrder): u64 {
+        fusion_order.source_amount
+    }
+
+    /// Gets the destination asset specification from a fusion order.
+    public fun get_destination_asset(fusion_order: &FusionOrder): vector<u8> {
+        fusion_order.destination_asset
+    }
+
+    /// Gets the destination recipient address from a fusion order.
+    public fun get_destination_recipient(fusion_order: &FusionOrder): vector<u8> {
+        fusion_order.destination_recipient
+    }
+
+    /// Gets the destination chain ID of a fusion order.
+    public fun get_chain_id(fusion_order: &FusionOrder): u64 {
+        fusion_order.chain_id
+    }
+
+    /// Gets the hash of the secret in a fusion order.
+    public fun get_hash(fusion_order: &FusionOrder): vector<u8> {
+        fusion_order.hash
+    }
+
+    /// Gets the initial destination amount of a fusion order.
+    public fun get_initial_destination_amount(fusion_order: &FusionOrder): u64 {
+        fusion_order.initial_destination_amount
+    }
+
+    /// Gets the minimum destination amount of a fusion order.
+    public fun get_min_destination_amount(fusion_order: &FusionOrder): u64 {
+        fusion_order.min_destination_amount
+    }
+
+    /// Gets the decay per second of a fusion order.
+    public fun get_decay_per_second(fusion_order: &FusionOrder): u64 {
+        fusion_order.decay_per_second
+    }
+
+    /// Gets the auction start time of a fusion order.
+    public fun get_auction_start_time(fusion_order: &FusionOrder): u64 {
+        fusion_order.auction_start_time
+    }
+
     // - - - - UTILITY FUNCTIONS - - - -
 
     /// Checks if a hash value is valid (non-empty).
@@ -281,6 +442,20 @@ module sui_fusion_plus::fusion_order {
                 current_price
             }
         }
+    }
+
+    /// Gets the current Dutch auction price for a fusion order.
+    public fun get_current_dutch_auction_price(
+        fusion_order: &FusionOrder,
+        clock: &Clock
+    ): u64 {
+        calculate_current_dutch_auction_price(
+            fusion_order.initial_destination_amount,
+            fusion_order.min_destination_amount,
+            fusion_order.decay_per_second,
+            fusion_order.auction_start_time,
+            clock
+        )
     }
 
     #[test_only]

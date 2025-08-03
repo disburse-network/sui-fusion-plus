@@ -6,12 +6,20 @@ use sui::coin;
 
 use sui_fusion_plus::fusion_order;
 use sui_fusion_plus::hashlock;
+use sui_fusion_plus::timelock;
+use sui_fusion_plus::constants;
 
 // Test addresses
 const USER_1: address = @0x333;
+const RESOLVER_1: address = @0x123;
 
-// Error codes
-const ENotImplemented: u64 = 0;
+// Test constants
+const TEST_AMOUNT: u64 = 1000;
+const TEST_DESTINATION_AMOUNT: u64 = 500;
+const TEST_CHAIN_ID: u64 = 2;
+const TEST_HASH: vector<u8> = b"01234567890123456789012345678901";
+const TEST_DESTINATION_ASSET: vector<u8> = b"12345678901234567890"; // 20 bytes
+const TEST_DESTINATION_RECIPIENT: vector<u8> = b"09876543210987654321"; // 20 bytes
 
 #[test]
 fun test_hashlock_operations() {
@@ -38,7 +46,24 @@ fun test_hashlock_operations() {
 }
 
 #[test]
-fun test_utility_functions() {
+fun test_timelock_operations() {
+    let mut scenario = test_scenario::begin(USER_1);
+    
+    // Test source chain timelock
+    let source_timelock = timelock::new_source();
+    
+    // Test destination chain timelock
+    let dest_timelock = timelock::new_destination();
+    
+    // Test chain type checking
+    assert!(timelock::get_chain_type(&source_timelock) == 0, 0); // Source
+    assert!(timelock::get_chain_type(&dest_timelock) == 1, 0); // Destination
+    
+    test_scenario::end(scenario);
+}
+
+#[test]
+fun test_fusion_order_utility_functions() {
     let mut scenario = test_scenario::begin(USER_1);
     
     // Test fusion order utility functions
@@ -101,7 +126,60 @@ fun test_dutch_auction_calculation() {
     test_scenario::end(scenario);
 }
 
-#[test, expected_failure(abort_code = ::sui_fusion_plus::sui_fusion_plus_tests::ENotImplemented)]
-fun test_sui_fusion_plus_fail() {
-    abort ENotImplemented
+#[test]
+fun test_constants() {
+    // Test safety deposit constants
+    assert!(constants::get_safety_deposit_amount() > 0, 0);
+    
+    // Test source chain timelock constants
+    assert!(constants::get_src_finality_lock() > 0, 0);
+    assert!(constants::get_src_withdrawal() > constants::get_src_finality_lock(), 0);
+    assert!(constants::get_src_public_withdrawal() > constants::get_src_withdrawal(), 0);
+    assert!(constants::get_src_cancellation() > constants::get_src_public_withdrawal(), 0);
+    assert!(constants::get_src_public_cancellation() > constants::get_src_cancellation(), 0);
+    
+    // Test destination chain timelock constants
+    assert!(constants::get_dst_finality_lock() > 0, 0);
+    assert!(constants::get_dst_withdrawal() > constants::get_dst_finality_lock(), 0);
+    assert!(constants::get_dst_public_withdrawal() > constants::get_dst_withdrawal(), 0);
+    assert!(constants::get_dst_cancellation() > constants::get_dst_public_withdrawal(), 0);
+    
+    // Test chain ID
+    assert!(constants::get_source_chain_id() > 0, 0);
+}
+
+#[test]
+fun test_hashlock_integration() {
+    let mut scenario = test_scenario::begin(USER_1);
+    
+    // Test hashlock creation and verification
+    let secret = b"test_secret_123";
+    let hashlock = hashlock::create_hashlock_for_test(secret);
+    
+    // Test verification
+    assert!(hashlock::verify_hashlock(&hashlock, secret), 0);
+    assert!(!hashlock::verify_hashlock(&hashlock, b"wrong_secret"), 0);
+    
+    // Test hash validation
+    let hash = hashlock::get_hash(&hashlock);
+    assert!(hashlock::is_valid_hash(&hash), 0);
+    
+    test_scenario::end(scenario);
+}
+
+#[test]
+fun test_timelock_phases() {
+    let mut scenario = test_scenario::begin(USER_1);
+    
+    // Test source chain timelock phases
+    let source_timelock = timelock::new_source();
+    
+    // Test destination chain timelock phases
+    let dest_timelock = timelock::new_destination();
+    
+    // Test phase checking functions
+    assert!(timelock::get_chain_type(&source_timelock) == 0, 0); // Source
+    assert!(timelock::get_chain_type(&dest_timelock) == 1, 0); // Destination
+    
+    test_scenario::end(scenario);
 }

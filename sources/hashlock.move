@@ -1,5 +1,5 @@
 module sui_fusion_plus::hashlock {
-    use std::hash;
+    use sui::hash;
 
     // - - - - ERROR CODES - - - -
 
@@ -45,7 +45,7 @@ module sui_fusion_plus::hashlock {
     /// @return bool True if the secret matches the hashlock, false otherwise.
     public fun verify_hashlock(hashlock: &HashLock, secret: vector<u8>): bool {
         assert!(is_valid_secret(&secret), EINVALID_SECRET);
-        hashlock.hash == hash::sha3_256(secret)
+        hashlock.hash == hash::keccak256(&secret)
     }
 
     /// Gets the hash value from a HashLock.
@@ -86,7 +86,7 @@ module sui_fusion_plus::hashlock {
 
     #[test_only]
     public fun create_hash_for_test(secret: vector<u8>): vector<u8> {
-        hash::sha3_256(secret)
+        hash::keccak256(&secret)
     }
 
     #[test]
