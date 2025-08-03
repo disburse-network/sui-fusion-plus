@@ -6,6 +6,7 @@ module sui_fusion_plus::escrow_tests {
     use sui::clock::{Self, Clock};
     use sui::test_scenario::{Self, Scenario};
     use sui::transfer;
+    use sui::object;
 
     use sui_fusion_plus::escrow::{Self};
     use sui_fusion_plus::fusion_order::{Self, FusionOrder};
@@ -97,10 +98,16 @@ module sui_fusion_plus::escrow_tests {
         // Verify escrow properties
         assert!(escrow::get_from(&escrow) == OWNER_ADDRESS, 0);
         assert!(escrow::get_to(&escrow) == RESOLVER_ADDRESS, 1);
+
         assert!(escrow::get_resolver(&escrow) == RESOLVER_ADDRESS, 2);
         assert!(escrow::get_chain_id(&escrow) == CHAIN_ID, 3);
         assert!(escrow::get_amount(&escrow) == ASSET_AMOUNT, 4);
         assert!(escrow::is_source_chain(&escrow), 5);
+
+        // Consume objects
+        transfer::public_transfer(clock, @0x0);
+        transfer::public_transfer(registry, @0x0);
+        transfer::public_transfer(escrow, @0x0);
 
         test_scenario::end(scenario);
     }
@@ -135,6 +142,11 @@ module sui_fusion_plus::escrow_tests {
         assert!(escrow::get_chain_id(&escrow) == CHAIN_ID, 3);
         assert!(escrow::get_amount(&escrow) == ASSET_AMOUNT, 4);
         assert!(!escrow::is_source_chain(&escrow), 5);
+
+        // Consume objects
+        transfer::public_transfer(clock, @0x0);
+        transfer::public_transfer(registry, @0x0);
+        transfer::public_transfer(escrow, @0x0);
 
         test_scenario::end(scenario);
     }

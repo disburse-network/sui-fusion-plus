@@ -2,15 +2,37 @@
 module sui_fusion_plus::simple_test {
     use std::hash;
     use sui::test_scenario::{Self, Scenario};
+    use sui::clock::{Self, Clock};
+    use sui::coin::{Self, Coin};
     use sui_fusion_plus::constants;
     use sui_fusion_plus::hashlock::{Self, HashLock};
     use sui_fusion_plus::timelock::{Self, Timelock};
+    use sui_fusion_plus::fusion_order::{Self, FusionOrder};
+    use sui_fusion_plus::resolver_registry;
+    use sui::object;
 
-    const TEST_SECRET: vector<u8> = b"test_secret_123";
+
+    // Test constants
+    const CHAIN_ID: u64 = 20;
+    // Test amounts
+    const MINT_AMOUNT: u64 = 100000000; // 100 token
+    const ASSET_AMOUNT: u64 = 1000000; // 1 token
+
+    // Add these constants at the top for destination asset/recipient
+    const DESTINATION_ASSET: vector<u8> = b"\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11";
+    const DESTINATION_RECIPIENT: vector<u8> = b"\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22\x22";
+
+    // Test secrets and hashes
+    const TEST_SECRET: vector<u8> = b"my secret";
+
+    // Dutch auction parameters
+    const INITIAL_DESTINATION_AMOUNT: u64 = 100200;
+    const MIN_DESTINATION_AMOUNT: u64 = 100000;
+    const DECAY_PER_SECOND: u64 = 20;
 
     #[test]
     fun test_hashlock_basic() {
-        let scenario = test_scenario::begin(@0x201);
+        let mut scenario = test_scenario::begin(@0x201);
         let ctx = test_scenario::ctx(&mut scenario);
         
         // Create hashlock
@@ -25,9 +47,9 @@ module sui_fusion_plus::simple_test {
 
     #[test]
     fun test_timelock_basic() {
-        let scenario = test_scenario::begin(@0x201);
+        let mut scenario = test_scenario::begin(@0x201);
         let ctx = test_scenario::ctx(&mut scenario);
-        let clock = sui::clock::create_for_testing(ctx);
+        let clock = clock::create_for_testing(ctx);
         
         // Create timelock
         let mut timelock = timelock::new_source();
@@ -36,6 +58,8 @@ module sui_fusion_plus::simple_test {
         // Test basic functionality
         assert!(timelock::get_chain_type(&timelock) == 0, 0);
         assert!(timelock::is_source_chain(&timelock), 1);
+        
+        // Clock will be consumed by test scenario
         
         test_scenario::end(scenario);
     }
@@ -48,5 +72,56 @@ module sui_fusion_plus::simple_test {
         
         let src_finality = constants::get_src_finality_lock();
         assert!(src_finality > 0, 1);
+    }
+
+    #[test]
+    fun test_create_fusion_order() {
+        let mut scenario = test_scenario::begin(@0x201);
+        let ctx = test_scenario::ctx(&mut scenario);
+        let clock = clock::create_for_testing(ctx);
+        
+        // Create a test coin for the fusion order
+        let test_coin = coin::mint_for_testing(ASSET_AMOUNT, ctx);
+
+        // Create a fusion order
+        let fusion_order =
+            fusion_order::new(
+                test_coin,
+                DESTINATION_ASSET,
+                ASSET_AMOUNT,
+                DESTINATION_RECIPIENT,
+                CHAIN_ID,
+                hash::sha3_256(TEST_SECRET),
+                INITIAL_DESTINATION_AMOUNT,
+                MIN_DESTINATION_AMOUNT,
+                DECAY_PER_SECOND,
+                &clock,
+                ctx
+            );
+
+        // Verify initial state
+        assert!(
+            fusion_order::get_owner(&fusion_order) == @0x201, 0
+        );
+        assert!(fusion_order::get_source_amount(&fusion_order) == ASSET_AMOUNT, 0);
+        assert!(fusion_order::get_chain_id(&fusion_order) == CHAIN_ID, 0);
+        assert!(fusion_order::get_hash(&fusion_order) == hash::sha3_256(TEST_SECRET), 0);
+
+        // Verify Dutch auction parameters
+        assert!(fusion_order::get_initial_destination_amount(&fusion_order) == INITIAL_DESTINATION_AMOUNT, 0);
+        assert!(fusion_order::get_min_destination_amount(&fusion_order) == MIN_DESTINATION_AMOUNT, 0);
+
+        // Verify destination asset and recipient
+        assert!(fusion_order::get_destination_asset(&fusion_order) == DESTINATION_ASSET, 0);
+        assert!(fusion_order::get_destination_recipient(&fusion_order) == DESTINATION_RECIPIENT, 0);
+
+        // Verify auction start time
+        assert!(fusion_order::get_auction_start_time(&fusion_order) > 0, 0);
+
+        // Consume objects
+        transfer::public_transfer(fusion_order, @0x0);
+
+        test_scenario::end(scenario);
+    }
     }
 } 
