@@ -17,7 +17,7 @@ module sui_fusion_plus::timelock_tests {
         assert!(timelock::is_source_chain(&timelock), 0);
         assert!(!timelock::is_destination_chain(&timelock), 0);
 
-        // Clock will be consumed by test scenario
+        // Clock will be consumed by test scenario automatically
 
         test_scenario::end(scenario);
     }
@@ -34,7 +34,7 @@ module sui_fusion_plus::timelock_tests {
         assert!(!timelock::is_source_chain(&timelock), 0);
         assert!(timelock::is_destination_chain(&timelock), 0);
 
-        // Clock will be consumed by test scenario
+        // Clock will be consumed by test scenario automatically
 
         test_scenario::end(scenario);
     }
@@ -58,7 +58,7 @@ module sui_fusion_plus::timelock_tests {
         assert!(!timelock::is_destination_chain(&source_timelock), 0);
         assert!(timelock::is_destination_chain(&dest_timelock), 0);
 
-        // Clock will be consumed by test scenario
+        // Clock will be consumed by test scenario automatically
 
         test_scenario::end(scenario);
     }
@@ -73,7 +73,7 @@ module sui_fusion_plus::timelock_tests {
         // Try to create timelock with invalid chain type
         timelock::new_for_test(99); // Invalid chain type
 
-        // Clock will be consumed by test scenario
+        // Clock will be consumed by test scenario automatically
 
         test_scenario::end(scenario);
     }
@@ -109,7 +109,7 @@ module sui_fusion_plus::timelock_tests {
         let creation_time = timelock::get_creation_time(&timelock);
         assert!(creation_time > 0, 0);
 
-        // Clock will be consumed by test scenario
+        // Clock will be consumed by test scenario automatically
 
         test_scenario::end(scenario);
     }

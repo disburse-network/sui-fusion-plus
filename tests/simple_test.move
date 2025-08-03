@@ -59,8 +59,7 @@ module sui_fusion_plus::simple_test {
         assert!(timelock::get_chain_type(&timelock) == 0, 0);
         assert!(timelock::is_source_chain(&timelock), 1);
         
-        // Clock will be consumed by test scenario
-        
+        // Clock will be consumed by test scenario automatically
         test_scenario::end(scenario);
     }
 
@@ -118,10 +117,10 @@ module sui_fusion_plus::simple_test {
         // Verify auction start time
         assert!(fusion_order::get_auction_start_time(&fusion_order) > 0, 0);
 
-        // Consume objects
+        // Consume objects with 'store' ability
         transfer::public_transfer(fusion_order, @0x0);
-
+        // Clock will be consumed by test scenario automatically
+        
         test_scenario::end(scenario);
     }
-    }
-} 
+}
